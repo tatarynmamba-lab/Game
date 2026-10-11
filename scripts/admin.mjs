@@ -1,0 +1,13 @@
+import {createInterface} from 'node:readline/promises';
+import {fileURLToPath} from 'node:url';
+import {resolve} from 'node:path';
+import {openStorage} from '../server/storage.mjs';
+import {initializeAuth,createUser,username,passwordHash} from '../server/auth.mjs';
+const root=fileURLToPath(new URL('../',import.meta.url));const storage=openStorage(resolve(root,process.env.DATA_DIR||'data'),resolve(root,'migrations'));initializeAuth(storage.sql);
+if(!process.stdin.isTTY){console.error('Откройте эту команду в обычном терминале.');storage.close();process.exit(1)}
+const reader=createInterface({input:process.stdin,output:process.stdout});
+async function secret(prompt){reader.close();process.stdout.write(prompt);process.stdin.setRawMode(true);process.stdin.resume();let value='';return new Promise((resolve,reject)=>{const handler=chunk=>{for(const c of chunk.toString()){if(c==='\u0003'){finish();reject(new Error('Отменено.'));return}if(c==='\r'||c==='\n'){finish();resolve(value);return}if(c==='\u007f'||c==='\b'){value=value.slice(0,-1);continue}if(c>=' '&&value.length<128)value+=c}};function finish(){process.stdin.off('data',handler);process.stdin.setRawMode(false);process.stdin.pause();process.stdout.write('\n')}process.stdin.on('data',handler)})}
+try{const reset=process.argv.includes('--reset'),login=username(await reader.question('Логин: '));
+ if(reset){const user=storage.sql.prepare('SELECT id FROM auth_users WHERE username=?').get(login);if(!user)throw new Error('Аккаунт не найден.');const value=await secret('Новый пароль (ввод скрыт, минимум 15 символов): '),hash=await passwordHash(value);storage.sql.exec('BEGIN');try{storage.sql.prepare('UPDATE auth_users SET password_hash=? WHERE id=?').run(hash,user.id);storage.sql.prepare('DELETE FROM auth_sessions WHERE user_id=?').run(user.id);storage.sql.exec('COMMIT')}catch(error){storage.sql.exec('ROLLBACK');throw error}console.log('Пароль изменён. Все прежние сеансы завершены.')}
+ else{const existing=storage.sql.prepare('SELECT id FROM auth_users WHERE username=?').get(login);if(existing){const answer=await reader.question('Выдать этому существующему аккаунту права администратора? Введите ДА: ');if(answer.trim()!=='ДА')throw new Error('Отменено.');storage.sql.prepare("UPDATE auth_users SET role='admin' WHERE id=?").run(existing.id);console.log('Права администратора выданы.')}else{const name=await reader.question('Ваше имя: '),value=await secret('Пароль (ввод скрыт, минимум 15 символов): ');await createUser(storage.sql,{username:login,name,password:value},'admin');console.log('Администратор создан. Войдите с указанным логином.')}}
+}catch(error){console.error(error.message);process.exitCode=1}finally{reader.close();storage.close()}

@@ -1,0 +1,2 @@
+let mode;try{mode=(await (await fetch('/api/auth/config',{cache:'no-store'})).json()).mode}catch{}
+if(mode==='password')for(const link of document.querySelectorAll('a[href^="/signout-with-chatgpt"]'))link.addEventListener('click',async e=>{e.preventDefault();link.setAttribute('aria-disabled','true');try{const response=await fetch('/api/auth/logout',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});if(!response.ok)throw new Error();location.assign('/')}catch{link.removeAttribute('aria-disabled');alert('Не удалось выйти. Повторите попытку.')}});

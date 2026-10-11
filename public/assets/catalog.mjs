@@ -1,0 +1,38 @@
+import {filterBusinesses} from './catalog-model.mjs';
+const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const icon=n=>`<svg aria-hidden="true"><use href="#i-${esc(n)}"/></svg>`;
+let items=[],categories=[],selected='',loaded=false,revision=-1,refreshing=false,toastTimer;
+function menu(open){$('#sidebar').classList.toggle('open',open);$('#scrim').classList.toggle('visible',open);$('#menu-toggle').setAttribute('aria-expanded',String(open))}
+$('#menu-toggle').onclick=()=>menu(!$('#sidebar').classList.contains('open'));$('#scrim').onclick=()=>menu(false);
+function announce(text){$('#toast').textContent=text;$('#toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').hidden=true,3000)}
+function renderCategories(){
+ $('#category-nav').innerHTML=categories.map(c=>`<a href="/?category=${encodeURIComponent(c.id)}" data-category="${esc(c.id)}" class="${selected===c.id?'active':''}" ${selected===c.id?'aria-current="page"':''} title="${esc(c.description)}"><span class="nav-section-icon ${esc(c.color)}">${icon(c.icon)}</span><span class="nav-section-name">${esc(c.name)}</span><span class="nav-section-count">${items.filter(b=>b.category===c.id).length}</span></a>`).join('');
+ $('#business-total').textContent=items.length;$('#section-total').textContent=categories.length;
+}
+function card(b){const category=categories.find(c=>c.id===b.category);return `<article class="business-card"><div class="business-card-top"><div class="business-logo">${b.logo_id?`<img src="/api/businesses/${encodeURIComponent(b.id)}/media/${encodeURIComponent(b.logo_id)}" alt="" loading="lazy">`:esc(b.title.charAt(0).toUpperCase())}</div><span class="business-category">${esc(category?.name||'Бизнес')}</span></div><h3>${esc(b.title)}</h3><p>${esc(b.description)}</p><div class="business-location">${icon('place')}${esc(b.city||'Работаем онлайн')}</div><a class="business-link" href="/business/${encodeURIComponent(b.id)}" aria-label="Открыть страницу бизнеса ${esc(b.title)}">Открыть страницу бизнеса${icon('arrow')}</a></article>`}
+function readURL(){const p=new URLSearchParams(location.search);selected=categories.some(c=>c.id===p.get('category'))?p.get('category'):'';$('#business-query').value=p.get('q')||'';$('#city-filter').value=[...$('#city-filter').options].some(o=>o.value===p.get('city'))?p.get('city'):'';$('#sort-filter').value=p.get('sort')==='name'?'name':'new'}
+function writeURL(push=false){const p=new URLSearchParams();if(selected)p.set('category',selected);if($('#business-query').value.trim())p.set('q',$('#business-query').value.trim());if($('#city-filter').value)p.set('city',$('#city-filter').value);if($('#sort-filter').value==='name')p.set('sort','name');history[push?'pushState':'replaceState'](null,'','/'+(p.size?'?'+p:''))}
+function render(){
+ if(!loaded)return;if(selected&&!categories.some(c=>c.id===selected))selected='';renderCategories();
+ const current=categories.find(c=>c.id===selected),query=$('#business-query').value,city=$('#city-filter').value;
+ $('#welcome-hero').hidden=Boolean(current);$('#selected-section').hidden=!current;
+ if(current){$('#selected-section-title').textContent=current.name;$('#selected-section-description').textContent=current.description;$('#selected-section-icon').innerHTML=`<span class="category-icon ${esc(current.color)}">${icon(current.icon)}</span>`}
+ document.title=(current?current.name:'Бизнесы сообщества')+' — Аркантериум';$('.breadcrumb span:last-child').textContent=current?current.name:'Каталог бизнесов';
+ const results=filterBusinesses(items,{query,category:selected,city},categories);if($('#sort-filter').value==='name')results.sort((a,b)=>a.title.localeCompare(b.title,'ru'));
+ const searched=Boolean(query.trim()||city);$('#clear-filters').hidden=!searched;$('#catalog-heading').textContent=current?'Бизнесы раздела':'Бизнесы сообщества';$('#result-count').textContent='Найдено: '+results.length;
+ $('#catalog-results').innerHTML=results.length?'<div class="business-grid">'+results.map(card).join('')+'</div>':`<div class="catalog-empty"><div class="empty-symbol">${icon(searched?'search':current?.icon||'shop')}</div><h3>${searched?'По вашему запросу ничего не найдено':current?'В этом разделе пока нет бизнесов':'Здесь начинается сообщество'}</h3><p>${searched?'Попробуйте другое название или сбросьте поиск.':current?'Новые карточки появятся здесь, как только владельцы опубликуют свои бизнесы.':'Выберите раздел в меню. Здесь появятся страницы бизнесов с услугами, фотографиями и новостями.'}</p></div>`;
+}
+async function get(path){const r=await fetch('/api/'+path,{cache:'no-store'}),data=await r.json();if(!r.ok)throw new Error(data.error||'Каталог временно недоступен.');return data}
+async function load(){try{const [config,data]=await Promise.all([get('categories'),get('businesses')]);categories=config.categories;revision=config.revision;items=data.businesses;loaded=true;const cities=[...new Set(items.map(b=>b.city).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ru'));$('#city-filter').innerHTML='<option value="">Все города</option>'+cities.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('');readURL();render();if(new URLSearchParams(location.search).get('focus')==='search')$('#business-query').focus()}catch(error){$('#result-count').textContent='Не удалось загрузить каталог';$('#catalog-results').innerHTML=`<div class="catalog-empty"><h3>Каталог временно недоступен</h3><p>${esc(error.message)}</p><button class="primary" id="reload-catalog">Повторить</button></div>`}}
+async function refreshSections(){if(!loaded||refreshing||document.hidden)return;refreshing=true;try{const config=await get('categories');if(config.revision!==revision){categories=config.categories;revision=config.revision;render();announce('Разделы каталога обновлены')}}catch{}finally{refreshing=false}}
+function search(){if(!loaded)return;writeURL();render()}
+$('#search-form').onsubmit=e=>{e.preventDefault();search()};$('#business-query').oninput=search;$('#city-filter').onchange=search;$('#sort-filter').onchange=search;
+$('#clear-filters').onclick=()=>{$('#business-query').value='';$('#city-filter').value='';search()};
+document.addEventListener('click',e=>{const link=e.target.closest('[data-category]');if(link&&!e.ctrlKey&&!e.metaKey&&!e.shiftKey&&e.button===0){e.preventDefault();selected=link.dataset.category;$('#business-query').value='';$('#city-filter').value='';writeURL(true);render();menu(false);window.scrollTo({top:0,behavior:'smooth'});$('#selected-section-title').setAttribute('tabindex','-1');$('#selected-section-title').focus({preventScroll:true})}if(e.target.closest('#reload-catalog'))load()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')menu(false);if(e.key==='/'&&!['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)){e.preventDefault();$('#business-query').focus()}});
+window.addEventListener('popstate',()=>{if(loaded){readURL();render()}});
+$('#year').textContent=new Date().getFullYear();load();
+get('me').then(({user})=>{if(!user)$('#account-link').href='/auth.html'}).catch(()=>{});
+const interval=setInterval(refreshSections,3000);window.addEventListener('focus',()=>{refreshSections();if(loaded)load()});document.addEventListener('visibilitychange',refreshSections);
+const channel=typeof BroadcastChannel==='function'?new BroadcastChannel('arkanterium-catalog'):null;if(channel)channel.onmessage=refreshSections;
+window.addEventListener('pagehide',e=>{if(!e.persisted){clearInterval(interval);channel?.close()}});window.addEventListener('pageshow',e=>{if(e.persisted)load()});

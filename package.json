@@ -1,0 +1,14 @@
+{
+  "name":"arkanterium",
+  "version":"1.0.0",
+  "private":true,
+  "type":"module",
+  "description":"Аркантериум — бизнес-сообщество с личными аккаунтами",
+  "engines":{"node":">=24 <25"},
+  "scripts":{
+    "start":"node --env-file-if-exists=.env server/index.mjs",
+    "admin:create":"node --env-file-if-exists=.env scripts/admin.mjs",
+    "password:reset":"node --env-file-if-exists=.env scripts/admin.mjs --reset",
+    "test":"node --test tests/accounts.test.mjs"
+  }
+}

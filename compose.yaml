@@ -1,0 +1,32 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      APP_ORIGIN: https://${DOMAIN:?Укажите DOMAIN в .env}
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      DATA_DIR: /app/data
+      TRUST_PROXY: '1'
+    volumes:
+      - arkanterium-data:/app/data
+    expose:
+      - '3000'
+  web:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - app
+    environment:
+      DOMAIN: ${DOMAIN:?Укажите DOMAIN в .env}
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+volumes:
+  arkanterium-data:
+  caddy-data:
+  caddy-config:
